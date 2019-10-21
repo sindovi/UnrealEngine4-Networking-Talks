@@ -37,6 +37,19 @@ int32 GuardedMain(const TCHAR* CmdLine)
 			GEngine->Start();
 				UGameEngine::Start();
 					GameInstance->StartGameInstance();
-	while (!GIsRequestingExit) { EngineTick(); }
-	~EngineLoopCleanupGuard() { EngineExit(); }
+	while (!GIsRequestingExit)
+		EngineTick();
+			FEngineLoop::Tick();
+	~EngineLoopCleanupGuard()
+		EngineExit();
+			FEngineLoop::Exit();
+				FlushAsyncLoading();
+				IStreamingManager::Get().BlockTillAllRequestsFinished();
+				GEngine->PreExit();
+				FSlateApplication::Shutdown();
+				AppPreExit();
+				TermGamePhys();
+				StopRenderingThread();
+				FTaskGraphInterface::Shutdown();
+				IStreamingManager::Shutdown();
 	return ErrorLevel;
