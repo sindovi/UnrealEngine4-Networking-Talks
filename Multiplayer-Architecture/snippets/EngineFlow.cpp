@@ -2,14 +2,9 @@ FEngineLoop	GEngineLoop;
 int32 GuardedMain(const TCHAR* CmdLine)
 	int32 ErrorLevel = EnginePreInit(CmdLine);
 		FEngineLoop::PreInit(CmdLine);
-			// Paths, Modules, Slate, Platform, Application, CommandLet, Plugins etc.
+			// Paths, CVars, Modules, Plugins, Platform, Slate, Time, Threads, Memory, Physics, Renderer etc.
 	ErrorLevel = EngineInit();
-		FEngineLoop::Init()
-			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
-			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
-			GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
-			GEngine->Init(this);
-			GEngine->Start();
+		FEngineLoop::Init();
 	while (!GIsRequestingExit) { EngineTick(); }
 	~EngineLoopCleanupGuard() { EngineExit(); }
 	return ErrorLevel;
