@@ -1,0 +1,16 @@
+import customTheme from "./theme";
+
+export const themes = [ customTheme ];
+
+<!-- ### Imports Above, Decks Below ### -->
+
+# Multiplayer Architecture
+
+Basic Model, Main Classes, Engine Flow and **_The Big Picture_**
+
+---
+
+## Networking Model
+
+Unreal Engine netcode is built around the client-server model.
+Server is authoritative which makes all the decisions and connected clients are being updated continuously to maintain up-to-date approximation of the server's world locally.
