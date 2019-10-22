@@ -12,18 +12,13 @@ int32 GuardedMain(const TCHAR* CmdLine)
 				UGameEngine::Init(InEngineLoop);
 					UEngine::Init(InEngineLoop);
 						EngineSubsystemCollection.Initialize();
-						InitializeRunningAverageDeltaTime();
-						AddToRoot();
-						FCoreUObjectDelegates::GetPreGarbageCollectDelegate().AddStatic(UEngine::PreGarbageCollect);
-						LoadConfig();
-						InitializeObjectReferences();
-						const UGeneralProjectSettings& ProjectSettings = *GetDefault<UGeneralProjectSettings>();
-						FNetworkVersion::SetProjectVersion(*ProjectSettings.ProjectVersion);
+							for (const auto& SubsystemClasses : DynamicSystemModuleMap)
+								for (const auto& SubsystemClass : SubsystemClasses.Value)
+									AddAndInitializeSubsystem(SubsystemClass);
+										Subsystem = NewObject<USubsystem>(Outer, SubsystemClass);
+										Subsystem->Initialize(*this);
 						OnTravelFailure().AddUObject(this, &UEngine::HandleTravelFailure);
 						OnNetworkFailure().AddUObject(this, &UEngine::HandleNetworkFailure);
-						OnNetworkLagStateChanged().AddUObject(this, &UEngine::HandleNetworkLagStateChanged);
-						FEngineAnalytics::Initialize();
-						EngineStats.Add(XXX);
 					GNetworkProfiler.EnableTracking(true);
 					GetGameUserSettings()->LoadSettings();
 					GetGameUserSettings()->ApplyNonResolutionSettings();
