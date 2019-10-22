@@ -12,32 +12,35 @@ int32 GuardedMain(const TCHAR* CmdLine)
 				UGameEngine::Init(InEngineLoop);
 					UEngine::Init(InEngineLoop);
 						EngineSubsystemCollection.Initialize();
-							for (const auto& SubsystemClasses : DynamicSystemModuleMap)
-								for (const auto& SubsystemClass : SubsystemClasses.Value)
-									AddAndInitializeSubsystem(SubsystemClass);
-										Subsystem = NewObject<USubsystem>(Outer, SubsystemClass);
-										Subsystem->Initialize(*this);
 						OnTravelFailure().AddUObject(this, &UEngine::HandleTravelFailure);
 						OnNetworkFailure().AddUObject(this, &UEngine::HandleNetworkFailure);
-					GNetworkProfiler.EnableTracking(true);
-					GetGameUserSettings()->LoadSettings();
-					GetGameUserSettings()->ApplyNonResolutionSettings();
 					FSoftClassPath GameInstanceClassName = GetDefault<UGameMapsSettings>()->GameInstanceClass;
 					UClass* GameInstanceClass = LoadObject<UClass>(NULL, *GameInstanceClassName.ToString());
 					GameInstance = NewObject<UGameInstance>(this, GameInstanceClass);
 					GameInstance->InitializeStandalone();
-					UGameViewportClient* ViewportClient = NewObject<UGameViewportClient>(this, GameViewportClientClass);
-					ViewportClient->Init(*GameInstance->GetWorldContext(), GameInstance);
-					GameInstance->GetWorldContext()->GameViewport = ViewportClient;
+						WorldContext = &GetEngine()->CreateNewWorldContext(EWorldType::Game);
+						WorldContext->OwningGameInstance = this;
+						UWorld* DummyWorld = UWorld::CreateWorld(EWorldType::Game, false);
+						DummyWorld->SetGameInstance(this);
+						WorldContext->SetCurrentWorld(DummyWorld);
+						UGameInstance::Init();
+							UGameInstance::ReceiveInit(); // BP Event Function
+							UClass* SpawnClass = GetOnlineSessionClass();
+							OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
+							OnlineSession->RegisterOnlineDelegates();
+							SubsystemCollection.Initialize();
 			GEngine->Start();
 				UGameEngine::Start();
 					GameInstance->StartGameInstance();
+						// TODO
 	while (!GIsRequestingExit)
 		EngineTick();
 			FEngineLoop::Tick();
+				// TODO
 	~EngineLoopCleanupGuard()
 		EngineExit();
 			FEngineLoop::Exit();
+				// TODO
 				FlushAsyncLoading();
 				IStreamingManager::Get().BlockTillAllRequestsFinished();
 				GEngine->PreExit();
