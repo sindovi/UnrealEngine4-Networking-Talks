@@ -4,6 +4,6 @@
 
 - Multiplayer Architecture
 - Replication Framework
-- Netcode in Practice
 - Debugging in Multiplayer
 - Network Optimization
+- Netcode Best Practices

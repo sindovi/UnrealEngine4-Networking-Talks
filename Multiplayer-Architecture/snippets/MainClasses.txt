@@ -1,9 +1,14 @@
-// TODO: Hierarchy of network related types
-GameInstance
-GameMode
-GameState
-PlayerController
-PlayerState
-Character
-Pawn
-etc.?
+// TODO: Hierarchy of network related types                       
+                                                                  
+   ┌───────────────────┐                                          
+   │   GameInstance    │                                          
+   └───────────────────┘                                          
+             │   ┌───────────────────┐                            
+             └──▶│     GameMode      │                            
+                 └───────────────────┘                            
+                           │   ┌───────────────────┐              
+                           └──▶│     GameState     │              
+                               └───────────────────┘              
+                                         │   ┌───────────────────┐
+                                         └──▶│   PlayerState[]   │
+                                             └───────────────────┘
