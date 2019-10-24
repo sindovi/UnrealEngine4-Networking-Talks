@@ -62,11 +62,17 @@ int32 GuardedMain(const TCHAR* CmdLine)
 								WorldContext.SetCurrentWorld(NewWorld);
 								WorldContext.World()->AddToRoot();
 								WorldContext.World()->InitWorld();
+									// TODO
 								WorldContext.World()->SetGameMode(URL);
+									// TODO
 								WorldContext.World()->Listen(URL);
+									// TODO
 								WorldContext.World()->InitializeActorsForPlay(URL);
+									// TODO
 								WorldContext.World()->BeginPlay();
+									// TODO
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
+									// TODO
 								return true;
 						UGameInstance::OnStart();
 	while (!GIsRequestingExit)
@@ -76,14 +82,21 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	~EngineLoopCleanupGuard()
 		EngineExit();
 			FEngineLoop::Exit();
-				// TODO
-				FlushAsyncLoading();
-				IStreamingManager::Get().BlockTillAllRequestsFinished();
-				GEngine->PreExit();
-				FSlateApplication::Shutdown();
-				AppPreExit();
-				TermGamePhys();
-				StopRenderingThread();
-				FTaskGraphInterface::Shutdown();
-				IStreamingManager::Shutdown();
+				UGameEngine::PreExit();
+					for (int32 WorldIndex = 0; WorldIndex < WorldList.Num(); ++WorldIndex)
+						UWorld* const World = WorldList[WorldIndex].World();
+						World->BeginTearingDown();
+						ShutdownWorldNetDriver(World);
+						for (FActorIterator ActorIt(World); ActorIt; ++ActorIt)
+							ActorIt->RouteEndPlay(EEndPlayReason::Quit);
+						World->GetGameInstance()->Shutdown();
+							UGameInstance::ReceiveShutdown(); // BP Event Function
+							OnlineSession->ClearOnlineDelegates();
+							OnlineSession = nullptr;
+							for (int32 PlayerIdx = LocalPlayers.Num() - 1; PlayerIdx >= 0; --PlayerIdx)
+								ULocalPlayer* Player = LocalPlayers[PlayerIdx];
+								RemoveLocalPlayer(Player);
+							SubsystemCollection.Deinitialize();
+							WorldContext = nullptr;
+					GEngine->PreExit();
 	return ErrorLevel;
