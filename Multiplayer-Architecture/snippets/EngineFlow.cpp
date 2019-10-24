@@ -62,17 +62,41 @@ int32 GuardedMain(const TCHAR* CmdLine)
 								WorldContext.SetCurrentWorld(NewWorld);
 								WorldContext.World()->AddToRoot();
 								WorldContext.World()->InitWorld();
-									// TODO
+									Levels.Empty(1);
+									Levels.Add(PersistentLevel);
+									PersistentLevel->OwningWorld = this;
+									PersistentLevel->bIsVisible = true;
+									bIsWorldInitialized = true;
+									BroadcastLevelsChanged();
 								WorldContext.World()->SetGameMode(URL);
-									// TODO
+									if (IsServer() && !AuthorityGameMode)
+										AuthorityGameMode = GetGameInstance()->CreateGameModeForURL(InURL);
+											UGameInstance::CreateGameModeForURL(InURL);
+												AWorldSettings* Settings = World->GetWorldSettings();
+												TSubclassOf<AGameModeBase> GameClass = Settings->DefaultGameMode;
+												// If there is a GameMode parameter in the URL, allow it to override the default game type
+												if (!GameParam.IsEmpty())
+													FString const GameClassName = UGameMapsSettings::GetGameModeForName(GameParam);
+													GameClass = LoadClass<AGameModeBase>(nullptr, *GameClassName);
+												// Next try to parse the map prefix
+												if (!GameClass)
+													// ...
+												// Fall back to game default
+												if (!GameClass)
+													// ...
+												// Fall back to raw GameMode
+												if (!GameClass)
+													// ...
+												return World->SpawnActor<AGameModeBase>(GameClass, SpawnInfo);
 								WorldContext.World()->Listen(URL);
-									// TODO
+									NetDriver = GEngine->CreateNamedNetDriver(this, NAME_GameNetDriver, NAME_GameNetDriver);
+									NetDriver->SetWorld(this);
+									NetDriver->InitListen(this, InURL, false, Error);
 								WorldContext.World()->InitializeActorsForPlay(URL);
 									// TODO
 								WorldContext.World()->BeginPlay();
 									// TODO
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
-									// TODO
 								return true;
 						UGameInstance::OnStart();
 	while (!GIsRequestingExit)
