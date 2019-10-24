@@ -32,7 +32,43 @@ int32 GuardedMain(const TCHAR* CmdLine)
 			GEngine->Start();
 				UGameEngine::Start();
 					GameInstance->StartGameInstance();
-						// TODO
+						const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
+						const FString& DefaultMap = GameMapsSettings->GetGameDefaultMap();
+						FString PackageName = DefaultMap + GameMapsSettings->LocalMapOptions;
+						FURL URL(&DefaultURL, *PackageName, TRAVEL_Partial);
+						BrowseRet = Engine->Browse(*WorldContext, URL, Error);
+							return LoadMap(WorldContext, URL, NULL, Error) ? EBrowseReturnVal::Success : EBrowseReturnVal::Failure;
+								if (WorldContext.World())
+									WorldContext.World()->BeginTearingDown();
+									ShutdownWorldNetDriver(WorldContext.World());
+									for (auto It = WorldContext.OwningGameInstance->GetLocalPlayerIterator(); It; ++It)
+										ULocalPlayer *Player = *It;
+										if (Player->PlayerController && Player->PlayerController->GetWorld() == WorldContext.World())
+											if (Player->PlayerController->GetPawn())
+												WorldContext.World()->DestroyActor(Player->PlayerController->GetPawn(), true);
+											WorldContext.World()->DestroyActor(Player->PlayerController, true);
+											Player->PlayerController = nullptr;
+									for (FActorIterator ActorIt(WorldContext.World()); ActorIt; ++ActorIt)
+										ActorIt->RouteEndPlay(EEndPlayReason::LevelTransition);
+									WorldContext.World()->CleanupWorld();
+									for (auto LevelIt(WorldContext.World()->GetLevelIterator()); LevelIt; ++LevelIt)
+										const ULevel* Level = *LevelIt;
+										CastChecked<UWorld>(Level->GetOuter())->MarkObjectsPendingKill();
+									WorldContext.SetCurrentWorld(nullptr);
+								UPackage* WorldPackage = LoadPackage(nullptr, *URL.Map, LOAD_None);
+								UWorld* NewWorld = UWorld::FindWorldInPackage(WorldPackage);
+								NewWorld->SetGameInstance(WorldContext.OwningGameInstance);
+								GWorld = NewWorld;
+								WorldContext.SetCurrentWorld(NewWorld);
+								WorldContext.World()->AddToRoot();
+								WorldContext.World()->InitWorld();
+								WorldContext.World()->SetGameMode(URL);
+								WorldContext.World()->Listen(URL);
+								WorldContext.World()->InitializeActorsForPlay(URL);
+								WorldContext.World()->BeginPlay();
+								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
+								return true;
+						UGameInstance::OnStart();
 	while (!GIsRequestingExit)
 		EngineTick();
 			FEngineLoop::Tick();
