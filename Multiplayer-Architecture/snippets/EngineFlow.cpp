@@ -74,19 +74,16 @@ int32 GuardedMain(const TCHAR* CmdLine)
 											UGameInstance::CreateGameModeForURL(InURL);
 												AWorldSettings* Settings = World->GetWorldSettings();
 												TSubclassOf<AGameModeBase> GameClass = Settings->DefaultGameMode;
-												// If there is a GameMode parameter in the URL, allow it to override the default game type
 												if (!GameParam.IsEmpty())
+													// If there is a GameMode parameter in the URL, allow it to override the default game type
 													FString const GameClassName = UGameMapsSettings::GetGameModeForName(GameParam);
 													GameClass = LoadClass<AGameModeBase>(nullptr, *GameClassName);
-												// Next try to parse the map prefix
 												if (!GameClass)
-													// ...
-												// Fall back to game default
+													// Next try to parse the map prefix
 												if (!GameClass)
-													// ...
-												// Fall back to raw GameMode
+													// Fall back to game default
 												if (!GameClass)
-													// ...
+													// Fall back to raw GameMode
 												return World->SpawnActor<AGameModeBase>(GameClass, SpawnInfo);
 								WorldContext.World()->Listen(URL);
 									NetDriver = GEngine->CreateNamedNetDriver(this, NAME_GameNetDriver, NAME_GameNetDriver);
@@ -94,8 +91,58 @@ int32 GuardedMain(const TCHAR* CmdLine)
 									NetDriver->InitListen(this, InURL, false, Error);
 								WorldContext.World()->InitializeActorsForPlay(URL);
 									// TODO
+									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
+										ULevel* const Level = Levels[LevelIndex];
+										Level->InitializeNetworkActors();
+											for (int32 ActorIndex = 0; ActorIndex < Actors.Num(); ActorIndex++)
+												if (!Actor->IsActorInitialized())
+													if (Actor->bNetLoadOnClient)
+														Actor->bNetStartup = true;
+													if (!bIsServer)
+														if (!Actor->bNetLoadOnClient)
+															Actor->Destroy(true);
+														else
+															Actor->ExchangeNetRoles(true);
+									if (CurNetMode == NM_ListenServer || CurNetMode == NM_DedicatedServer)
+										GEngine->SpawnServerActors(this);
+											UEngine::SpawnServerActors(UWorld* World);
+												TArray<FString> FullServerActors;
+												// A configurable list of actors that are automatically spawned
+												// upon server startup (just prior to InitGame)
+												FullServerActors.Append(ServerActors);
+												// Runtime-modified list of server actors, allowing plugins to use serveractors,
+												// without permanently adding them to config files
+												FullServerActors.Append(RuntimeServerActors);
+												for (int32 i=0; i < FullServerActors.Num(); i++)
+													AActor* Actor = World->SpawnActor( HelperClass );
+									if (AuthorityGameMode && !AuthorityGameMode->IsActorInitialized())
+										AuthorityGameMode->InitGame(FPaths::GetBaseFilename(InURL.Map), Options, Error);
+											// TODO
+											AGameMode::InitGame(MapName, Options, ErrorMessage);
+												AGameModeBase::InitGame(MapName, Options, ErrorMessage);
+													GameSession = World->SpawnActor<AGameSession>(GetGameSessionClass(), SpawnInfo);
+													GameSession->InitOptions(Options);
+													FGameModeEvents::GameModeInitializedEvent.Broadcast(this);
+													GameSession->RegisterServer();
+												SetMatchState(MatchState::EnteringMap);
+												if (GameStateClass == nullptr)
+													// GameStateClass is not set, falling back to AGameState.
+													GameStateClass = AGameState::StaticClass();
+												FGameDelegates::Get().GetPendingConnectionLostDelegate().AddUObject(this, &AGameMode::NotifyPendingConnectionLost);
+												FGameDelegates::Get().GetPreCommitMapChangeDelegate().AddUObject(this, &AGameMode::PreCommitMapChange);
+												FGameDelegates::Get().GetPostCommitMapChangeDelegate().AddUObject(this, &AGameMode::PostCommitMapChange);
+												FGameDelegates::Get().GetHandleDisconnectDelegate().AddUObject(this, &AGameMode::HandleDisconnect);
+									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
+										ULevel* const Level = Levels[LevelIndex];
+										Level->RouteActorInitialize();
+											// TODO
+									OnActorsInitialized.Broadcast(OnActorInitParams);
+									FWorldDelegates::OnWorldInitializedActors.Broadcast(OnActorInitParams);
 								WorldContext.World()->BeginPlay();
 									// TODO
+									AGameModeBase* const GameMode = GetAuthGameMode();
+									GameMode->StartPlay();
+										// TODO
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
 								return true;
 						UGameInstance::OnStart();
