@@ -1,9 +1,13 @@
-FEngineLoop	GEngineLoop;
+FEngineLoop GEngineLoop;
 int32 GuardedMain(const TCHAR* CmdLine)
-	int32 ErrorLevel = EnginePreInit(CmdLine);
+{
+	int32 ErrorLevel = EnginePreInit(CmdLine)
+	{
 		FEngineLoop::PreInit(CmdLine);
 			// Paths, CVars, Modules, Plugins, Platform, Slate, Threads, Memory, Physics, Renderer etc.
-	ErrorLevel = EngineInit();
+	}
+	ErrorLevel = EngineInit()
+	{
 		FEngineLoop::Init();
 			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
 			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
@@ -117,14 +121,12 @@ int32 GuardedMain(const TCHAR* CmdLine)
 													AActor* Actor = World->SpawnActor( HelperClass );
 									if (AuthorityGameMode && !AuthorityGameMode->IsActorInitialized())
 										AuthorityGameMode->InitGame(FPaths::GetBaseFilename(InURL.Map), Options, Error);
-											// TODO
 											AGameMode::InitGame(MapName, Options, ErrorMessage);
 												AGameModeBase::InitGame(MapName, Options, ErrorMessage);
 													GameSession = World->SpawnActor<AGameSession>(GetGameSessionClass(), SpawnInfo);
 													GameSession->InitOptions(Options);
 													FGameModeEvents::GameModeInitializedEvent.Broadcast(this);
 													GameSession->RegisterServer();
-												SetMatchState(MatchState::EnteringMap);
 												if (GameStateClass == nullptr)
 													// GameStateClass is not set, falling back to AGameState.
 													GameStateClass = AGameState::StaticClass();
@@ -146,14 +148,19 @@ int32 GuardedMain(const TCHAR* CmdLine)
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
 								return true;
 						UGameInstance::OnStart();
+	}
 	while (!GIsRequestingExit)
+	{
 		EngineTick();
 			FEngineLoop::Tick();
 				// TODO
+	}
 	~EngineLoopCleanupGuard()
+	{
 		EngineExit();
 			FEngineLoop::Exit();
-				UGameEngine::PreExit();
+				UGameEngine::PreExit()
+				{
 					for (int32 WorldIndex = 0; WorldIndex < WorldList.Num(); ++WorldIndex)
 						UWorld* const World = WorldList[WorldIndex].World();
 						World->BeginTearingDown();
@@ -170,4 +177,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 							SubsystemCollection.Deinitialize();
 							WorldContext = nullptr;
 					GEngine->PreExit();
+				}
+	}
 	return ErrorLevel;
+}
