@@ -190,7 +190,51 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	{
 		EngineTick();
 			FEngineLoop::Tick();
-				// TODO
+				FCoreDelegates::OnBeginFrame.Broadcast();
+				GEngine->UpdateTimeAndHandleMaxTickRate();
+					FPlatformProcess::SleepNoStats(WaitTime);
+				GEngine->Tick(FApp::GetDeltaTime(), bIdleMode);
+					for (int32 WorldIdx = 0; WorldIdx < WorldList.Num(); ++WorldIdx)
+						FWorldContext &Context = WorldList[WorldIdx];
+						GWorld = Context.World();
+						Context.World()->Tick(LEVELTICK_All, DeltaSeconds);
+							FWorldDelegates::OnWorldTickStart.Broadcast(TickType, DeltaSeconds);
+							BroadcastTickDispatch(DeltaSeconds);
+								// UNetDriver::TickDispatch(DeltaTime) - Network Input, Read Socket and Update Actors
+							BroadcastPostTickDispatch();
+							if (NetDriver && NetDriver->ServerConnection)
+								TickNetClient(DeltaSeconds);
+							FWorldDelegates::OnWorldPreActorTick.Broadcast(this, TickType, DeltaSeconds);
+							for (AActor* LevelSequenceActor : LevelSequenceActors)
+								LevelSequenceActor->Tick(DeltaSeconds);
+							for (int32 i = 0; i < LevelCollections.Num(); ++i)
+								TArray<ULevel*> LevelsToTick;
+								for (ULevel* CollectionLevel : LevelCollections[i].GetLevels())
+									if (Levels.Contains(CollectionLevel))
+										LevelsToTick.Add(CollectionLevel);
+								FTickTaskManagerInterface::Get().StartFrame(this, DeltaSeconds, TickType, LevelsToTick);
+								RunTickGroup(TG_PrePhysics); // AActor::PrimaryActorTick.TickGroup = TG_PrePhysics;
+								RunTickGroup(TG_StartPhysics);
+								RunTickGroup(TG_DuringPhysics, false);
+								RunTickGroup(TG_EndPhysics);
+								RunTickGroup(TG_PostPhysics);
+								GetTimerManager().Tick(DeltaSeconds);
+								FTickableGameObject::TickObjects(this, TickType, bIsPaused, DeltaSeconds);
+								RunTickGroup(TG_PostUpdateWork);
+								RunTickGroup(TG_LastDemotable);
+								FTickTaskManagerInterface::Get().EndFrame();
+							FWorldDelegates::OnWorldPostActorTick.Broadcast(this, TickType, DeltaSeconds);
+							BroadcastTickFlush(RealDeltaSeconds);
+								// UNetDriver::TickFlush(DeltaSeconds) - Network Output, Process Actors and Write to Socket
+							BroadcastPostTickFlush(RealDeltaSeconds);
+							GEngine->ConditionalCollectGarbage();
+						ConditionalCommitMapChange(Context);
+					FTickableGameObject::TickObjects(nullptr, LEVELTICK_All, false, DeltaSeconds);
+				GFrameCounter++;
+				FTicker::GetCoreTicker().Tick(FApp::GetDeltaTime());
+				FThreadManager::Get().Tick();
+				GEngine->TickDeferredCommands();
+				FCoreDelegates::OnEndFrame.Broadcast();
 	}
 	~EngineLoopCleanupGuard()
 	{
@@ -208,9 +252,6 @@ int32 GuardedMain(const TCHAR* CmdLine)
 							UGameInstance::ReceiveShutdown(); // BP Event Function
 							OnlineSession->ClearOnlineDelegates();
 							OnlineSession = nullptr;
-							for (int32 PlayerIdx = LocalPlayers.Num() - 1; PlayerIdx >= 0; --PlayerIdx)
-								ULocalPlayer* Player = LocalPlayers[PlayerIdx];
-								RemoveLocalPlayer(Player);
 							SubsystemCollection.Deinitialize();
 							WorldContext = nullptr;
 					GEngine->PreExit();
