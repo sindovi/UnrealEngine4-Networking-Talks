@@ -12,7 +12,8 @@ int32 GuardedMain(const TCHAR* CmdLine)
 			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
 			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
 			GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
-			GEngine->Init(this);
+			GEngine->Init(this)
+			{
 				UGameEngine::Init(InEngineLoop);
 					UEngine::Init(InEngineLoop);
 						EngineSubsystemCollection.Initialize();
@@ -21,26 +22,33 @@ int32 GuardedMain(const TCHAR* CmdLine)
 					FSoftClassPath GameInstanceClassName = GetDefault<UGameMapsSettings>()->GameInstanceClass;
 					UClass* GameInstanceClass = LoadObject<UClass>(NULL, *GameInstanceClassName.ToString());
 					GameInstance = NewObject<UGameInstance>(this, GameInstanceClass);
-					GameInstance->InitializeStandalone();
+					GameInstance->InitializeStandalone()
+					{
 						WorldContext = &GetEngine()->CreateNewWorldContext(EWorldType::Game);
 						WorldContext->OwningGameInstance = this;
 						UWorld* DummyWorld = UWorld::CreateWorld(EWorldType::Game, false);
 						DummyWorld->SetGameInstance(this);
 						WorldContext->SetCurrentWorld(DummyWorld);
-						UGameInstance::Init();
+						UGameInstance::Init()
+						{
 							UGameInstance::ReceiveInit(); // BP Event Function
 							UClass* SpawnClass = GetOnlineSessionClass();
 							OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
 							OnlineSession->RegisterOnlineDelegates();
 							SubsystemCollection.Initialize();
-			GEngine->Start();
+						}
+					}
+			}
+			GEngine->Start()
+			{
 				UGameEngine::Start();
-					GameInstance->StartGameInstance();
+					GameInstance->StartGameInstance()
+					{
 						const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
 						const FString& DefaultMap = GameMapsSettings->GetGameDefaultMap();
 						FString PackageName = DefaultMap + GameMapsSettings->LocalMapOptions;
 						FURL URL(&DefaultURL, *PackageName, TRAVEL_Partial);
-						BrowseRet = Engine->Browse(*WorldContext, URL, Error);
+						BrowseRet = Engine->Browse(*WorldContext, URL, Error)
 							return LoadMap(WorldContext, URL, NULL, Error) ? EBrowseReturnVal::Success : EBrowseReturnVal::Failure;
 								if (WorldContext.World())
 									WorldContext.World()->BeginTearingDown();
@@ -92,9 +100,18 @@ int32 GuardedMain(const TCHAR* CmdLine)
 								WorldContext.World()->Listen(URL);
 									NetDriver = GEngine->CreateNamedNetDriver(this, NAME_GameNetDriver, NAME_GameNetDriver);
 									NetDriver->SetWorld(this);
+										UNetDriver::RegisterTickEvents(InWorld);
+											TickDispatchDelegateHandle = InWorld->OnTickDispatch().AddUObject(this, &UNetDriver::TickDispatch);
+											PostTickDispatchDelegateHandle = InWorld->OnPostTickDispatch().AddUObject(this, &UNetDriver::PostTickDispatch);
+											TickFlushDelegateHandle = InWorld->OnTickFlush().AddUObject(this, &UNetDriver::TickFlush);
+											PostTickFlushDelegateHandle = InWorld->OnPostTickFlush().AddUObject(this, &UNetDriver::PostTickFlush);
+										GetNetworkObjectList().AddInitialObjects(InWorld, this);
+											for (FActorIterator Iter(World); Iter; ++Iter)
+												if (ULevel::IsNetActor(Actor))
+													FindOrAdd(Actor, NetDriver);
 									NetDriver->InitListen(this, InURL, false, Error);
-								WorldContext.World()->InitializeActorsForPlay(URL);
-									// TODO
+								WorldContext.World()->InitializeActorsForPlay(URL)
+								{
 									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
 										ULevel* const Level = Levels[LevelIndex];
 										Level->InitializeNetworkActors();
@@ -137,17 +154,37 @@ int32 GuardedMain(const TCHAR* CmdLine)
 									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
 										ULevel* const Level = Levels[LevelIndex];
 										Level->RouteActorInitialize();
-											// TODO
+											for (int32 Index = 0; Index < Actors.Num(); ++Index)
+												AActor* const Actor = Actors[Index];
+												Actor->PreInitializeComponents();
+													AGameModeBase::PreInitializeComponents();
+														GameState = World->SpawnActor<AGameStateBase>(GameStateClass, SpawnInfo);
+														World->SetGameState(GameState);
+														GameState->AuthorityGameMode = this;
+														AGameModeBase::InitGameState();
+															GameState->GameModeClass = GetClass();
+															GameState->ReceivedGameModeClass();
+															GameState->SpectatorClass = SpectatorClass;
+															GameState->ReceivedSpectatorClass();
+												Actor->InitializeComponents();
+												Actor->PostInitializeComponents();
+													AGameStateBase::PostInitializeComponents();
+														for (TActorIterator<APlayerState> It(World); It; ++It)
+															AGameStateBase::AddPlayerState(*It);
+																PlayerArray.AddUnique(PlayerState);
+												Actor->DispatchBeginPlay();
 									OnActorsInitialized.Broadcast(OnActorInitParams);
 									FWorldDelegates::OnWorldInitializedActors.Broadcast(OnActorInitParams);
+								}
 								WorldContext.World()->BeginPlay();
-									// TODO
 									AGameModeBase* const GameMode = GetAuthGameMode();
 									GameMode->StartPlay();
-										// TODO
+										GameState->HandleBeginPlay();
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
 								return true;
 						UGameInstance::OnStart();
+					}
+			}
 	}
 	while (!GIsRequestingExit)
 	{
