@@ -1,19 +1,14 @@
 FEngineLoop GEngineLoop;
-int32 GuardedMain(const TCHAR* CmdLine)
-{
-	int32 ErrorLevel = EnginePreInit(CmdLine)
-	{
+int32 GuardedMain(const TCHAR* CmdLine);
+	int32 ErrorLevel = EnginePreInit(CmdLine);
 		FEngineLoop::PreInit(CmdLine);
 			// Paths, CVars, Modules, Plugins, Platform, Slate, Threads, Memory, Physics, Renderer etc.
-	}
-	ErrorLevel = EngineInit()
-	{
+	ErrorLevel = EngineInit();
 		FEngineLoop::Init();
 			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
 			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
 			GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
-			GEngine->Init(this)
-			{
+			GEngine->Init(this);
 				UGameEngine::Init(InEngineLoop);
 					UEngine::Init(InEngineLoop);
 						EngineSubsystemCollection.Initialize();
@@ -22,28 +17,21 @@ int32 GuardedMain(const TCHAR* CmdLine)
 					FSoftClassPath GameInstanceClassName = GetDefault<UGameMapsSettings>()->GameInstanceClass;
 					UClass* GameInstanceClass = LoadObject<UClass>(NULL, *GameInstanceClassName.ToString());
 					GameInstance = NewObject<UGameInstance>(this, GameInstanceClass);
-					GameInstance->InitializeStandalone()
-					{
+					GameInstance->InitializeStandalone();
 						WorldContext = &GetEngine()->CreateNewWorldContext(EWorldType::Game);
 						WorldContext->OwningGameInstance = this;
 						UWorld* DummyWorld = UWorld::CreateWorld(EWorldType::Game, false);
 						DummyWorld->SetGameInstance(this);
 						WorldContext->SetCurrentWorld(DummyWorld);
-						UGameInstance::Init()
-						{
+						UGameInstance::Init();
 							UGameInstance::ReceiveInit(); // BP Event Function
 							UClass* SpawnClass = GetOnlineSessionClass();
 							OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
 							OnlineSession->RegisterOnlineDelegates();
 							SubsystemCollection.Initialize();
-						}
-					}
-			}
-			GEngine->Start()
-			{
+			GEngine->Start();
 				UGameEngine::Start();
-					GameInstance->StartGameInstance()
-					{
+					GameInstance->StartGameInstance();
 						const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
 						const FString& DefaultMap = GameMapsSettings->GetGameDefaultMap();
 						FString PackageName = DefaultMap + GameMapsSettings->LocalMapOptions;
@@ -183,11 +171,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
 								return true;
 						UGameInstance::OnStart();
-					}
-			}
-	}
 	while (!GIsRequestingExit)
-	{
 		EngineTick();
 			FEngineLoop::Tick();
 				FCoreDelegates::OnBeginFrame.Broadcast();
@@ -262,9 +246,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 				FThreadManager::Get().Tick();
 				GEngine->TickDeferredCommands();
 				FCoreDelegates::OnEndFrame.Broadcast();
-	}
-	~EngineLoopCleanupGuard()
-	{
+	~EngineLoopCleanupGuard();
 		EngineExit();
 			FEngineLoop::Exit();
 				UGameEngine::PreExit()
@@ -282,7 +264,4 @@ int32 GuardedMain(const TCHAR* CmdLine)
 							SubsystemCollection.Deinitialize();
 							WorldContext = nullptr;
 					GEngine->PreExit();
-				}
-	}
 	return ErrorLevel;
-}
