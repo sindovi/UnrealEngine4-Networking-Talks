@@ -201,6 +201,33 @@ int32 GuardedMain(const TCHAR* CmdLine)
 							FWorldDelegates::OnWorldTickStart.Broadcast(TickType, DeltaSeconds);
 							BroadcastTickDispatch(DeltaSeconds);
 								// UNetDriver::TickDispatch(DeltaTime) - Network Input, Read Socket and Update Actors
+									UControlChannel::ReceivedBunch(Bunch);
+										Connection->Driver->Notify->NotifyControlMessage(Connection, MessageType, Bunch);
+											UWorld::NotifyControlMessage(Connection, MessageType, Bunch);
+												GameMode->PreLogin(Tmp, Connection->LowLevelGetRemoteAddress(), Connection->PlayerId, ErrorMsg);
+												Connection->PlayerController = SpawnPlayActor(Connection, ROLE_AutonomousProxy, InURL, Connection->PlayerId, ErrorMsg);
+													UWorld::SpawnPlayActor(NewPlayer, RemoteRole, InURL, UniqueId, Error, InNetPlayerIndex);
+														APlayerController* const NewPlayerController = GameMode->Login(NewPlayer, RemoteRole, *InURL.Portal, Options, UniqueId, Error);
+															ErrorMessage = GameSession->ApproveLogin(Options);
+															APlayerController* const NewPlayerController = SpawnPlayerController(InRemoteRole, Options);
+																APlayerController* NewPC = GetWorld()->SpawnActor<APlayerController>(InPlayerControllerClass, SpawnLocation, SpawnRotation, SpawnInfo);
+																	APlayerController::PostInitializeComponents();
+																		AController::InitPlayerState();
+																			TSubclassOf<APlayerState> PlayerStateClassToSpawn = GameMode->PlayerStateClass;
+																			PlayerState = World->SpawnActor<APlayerState>(PlayerStateClassToSpawn, SpawnInfo);
+															ErrorMessage = InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
+																GameSession->RegisterPlayer(NewPlayerController, UniqueId.GetUniqueNetId(), UGameplayStatics::HasOption(Options, TEXT("bIsFromInvite")));
+																AActor* const StartSpot = FindPlayerStart(NewPlayerController, Portal);
+															return NewPlayerController;
+														NewPlayerController->NetPlayerIndex = InNetPlayerIndex;
+														NewPlayerController->Role = ROLE_Authority;
+														NewPlayerController->SetReplicates(RemoteRole != ROLE_None);
+														if (RemoteRole == ROLE_AutonomousProxy)
+															NewPlayerController->SetAutonomousProxy(true);
+														NewPlayerController->SetPlayer(NewPlayer);
+														GameMode->PostLogin(NewPlayerController);
+														return NewPlayerController;
+												Connection->PlayerController->ClientTravel(LevelName, TRAVEL_Relative, true);
 							BroadcastPostTickDispatch();
 							if (NetDriver && NetDriver->ServerConnection)
 								TickNetClient(DeltaSeconds);
