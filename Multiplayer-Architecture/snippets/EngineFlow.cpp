@@ -101,10 +101,10 @@ int32 GuardedMain(const TCHAR* CmdLine)
 									NetDriver = GEngine->CreateNamedNetDriver(this, NAME_GameNetDriver, NAME_GameNetDriver);
 									NetDriver->SetWorld(this);
 										UNetDriver::RegisterTickEvents(InWorld);
-											TickDispatchDelegateHandle = InWorld->OnTickDispatch().AddUObject(this, &UNetDriver::TickDispatch);
-											PostTickDispatchDelegateHandle = InWorld->OnPostTickDispatch().AddUObject(this, &UNetDriver::PostTickDispatch);
-											TickFlushDelegateHandle = InWorld->OnTickFlush().AddUObject(this, &UNetDriver::TickFlush);
-											PostTickFlushDelegateHandle = InWorld->OnPostTickFlush().AddUObject(this, &UNetDriver::PostTickFlush);
+											InWorld->OnTickDispatch().AddUObject(this, &UNetDriver::TickDispatch);
+											InWorld->OnPostTickDispatch().AddUObject(this, &UNetDriver::PostTickDispatch);
+											InWorld->OnTickFlush().AddUObject(this, &UNetDriver::TickFlush);
+											InWorld->OnPostTickFlush().AddUObject(this, &UNetDriver::PostTickFlush);
 										GetNetworkObjectList().AddInitialObjects(InWorld, this);
 											for (FActorIterator Iter(World); Iter; ++Iter)
 												if (ULevel::IsNetActor(Actor))
@@ -147,10 +147,10 @@ int32 GuardedMain(const TCHAR* CmdLine)
 												if (GameStateClass == nullptr)
 													// GameStateClass is not set, falling back to AGameState.
 													GameStateClass = AGameState::StaticClass();
-												FGameDelegates::Get().GetPendingConnectionLostDelegate().AddUObject(this, &AGameMode::NotifyPendingConnectionLost);
-												FGameDelegates::Get().GetPreCommitMapChangeDelegate().AddUObject(this, &AGameMode::PreCommitMapChange);
-												FGameDelegates::Get().GetPostCommitMapChangeDelegate().AddUObject(this, &AGameMode::PostCommitMapChange);
-												FGameDelegates::Get().GetHandleDisconnectDelegate().AddUObject(this, &AGameMode::HandleDisconnect);
+												GetPendingConnectionLostDelegate().AddUObject(this, &AGameMode::NotifyPendingConnectionLost);
+												GetPreCommitMapChangeDelegate().AddUObject(this, &AGameMode::PreCommitMapChange);
+												GetPostCommitMapChangeDelegate().AddUObject(this, &AGameMode::PostCommitMapChange);
+												GetHandleDisconnectDelegate().AddUObject(this, &AGameMode::HandleDisconnect);
 									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
 										ULevel* const Level = Levels[LevelIndex];
 										Level->RouteActorInitialize();
@@ -204,21 +204,21 @@ int32 GuardedMain(const TCHAR* CmdLine)
 									UControlChannel::ReceivedBunch(Bunch);
 										Connection->Driver->Notify->NotifyControlMessage(Connection, MessageType, Bunch);
 											UWorld::NotifyControlMessage(Connection, MessageType, Bunch);
-												GameMode->PreLogin(Tmp, Connection->LowLevelGetRemoteAddress(), Connection->PlayerId, ErrorMsg);
-												Connection->PlayerController = SpawnPlayActor(Connection, ROLE_AutonomousProxy, InURL, Connection->PlayerId, ErrorMsg);
+												GameMode->PreLogin(Tmp, ConnectionAddress, Connection->PlayerId, ErrorMsg);
+												Connection->PlayerController = SpawnPlayActor(...);
 													UWorld::SpawnPlayActor(NewPlayer, RemoteRole, InURL, UniqueId, Error, InNetPlayerIndex);
-														APlayerController* const NewPlayerController = GameMode->Login(NewPlayer, RemoteRole, *InURL.Portal, Options, UniqueId, Error);
+														APlayerController* const NewPlayerController = GameMode->Login(...);
 															ErrorMessage = GameSession->ApproveLogin(Options);
-															APlayerController* const NewPlayerController = SpawnPlayerController(InRemoteRole, Options);
-																APlayerController* NewPC = GetWorld()->SpawnActor<APlayerController>(InPlayerControllerClass, SpawnLocation, SpawnRotation, SpawnInfo);
+															APlayerController* const NewPCont = SpawnPlayerController(InRemoteRole, Options);
+																APlayerController* NewPC = GetWorld()->SpawnActor<APlayerController>(...);
 																	APlayerController::PostInitializeComponents();
 																		AController::InitPlayerState();
-																			TSubclassOf<APlayerState> PlayerStateClassToSpawn = GameMode->PlayerStateClass;
-																			PlayerState = World->SpawnActor<APlayerState>(PlayerStateClassToSpawn, SpawnInfo);
-															ErrorMessage = InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
-																GameSession->RegisterPlayer(NewPlayerController, UniqueId.GetUniqueNetId(), UGameplayStatics::HasOption(Options, TEXT("bIsFromInvite")));
-																AActor* const StartSpot = FindPlayerStart(NewPlayerController, Portal);
-															return NewPlayerController;
+																			TSubclassOf<APlayerState> PSClass = GameMode->PlayerStateClass;
+																			PlayerState = World->SpawnActor<APlayerState>(PSClass, SpawnInfo);
+															ErrorMessage = InitNewPlayer(NewPCont, UniqueId, Options, Portal);
+																GameSession->RegisterPlayer(...);
+																AActor* const StartSpot = FindPlayerStart(NewPCont, Portal);
+															return NewPCont;
 														NewPlayerController->NetPlayerIndex = InNetPlayerIndex;
 														NewPlayerController->Role = ROLE_Authority;
 														NewPlayerController->SetReplicates(RemoteRole != ROLE_None);
