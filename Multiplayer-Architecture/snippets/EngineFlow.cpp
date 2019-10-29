@@ -98,8 +98,7 @@ int32 GuardedMain(const TCHAR* CmdLine);
 												if (ULevel::IsNetActor(Actor))
 													FindOrAdd(Actor, NetDriver);
 									NetDriver->InitListen(this, InURL, false, Error);
-								WorldContext.World()->InitializeActorsForPlay(URL)
-								{
+								WorldContext.World()->InitializeActorsForPlay(URL);
 									for (int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++)
 										ULevel* const Level = Levels[LevelIndex];
 										Level->InitializeNetworkActors();
@@ -163,7 +162,6 @@ int32 GuardedMain(const TCHAR* CmdLine);
 												Actor->DispatchBeginPlay();
 									OnActorsInitialized.Broadcast(OnActorInitParams);
 									FWorldDelegates::OnWorldInitializedActors.Broadcast(OnActorInitParams);
-								}
 								WorldContext.World()->BeginPlay();
 									AGameModeBase* const GameMode = GetAuthGameMode();
 									GameMode->StartPlay();
@@ -249,8 +247,7 @@ int32 GuardedMain(const TCHAR* CmdLine);
 	~EngineLoopCleanupGuard();
 		EngineExit();
 			FEngineLoop::Exit();
-				UGameEngine::PreExit()
-				{
+				UGameEngine::PreExit();
 					for (int32 WorldIndex = 0; WorldIndex < WorldList.Num(); ++WorldIndex)
 						UWorld* const World = WorldList[WorldIndex].World();
 						World->BeginTearingDown();
