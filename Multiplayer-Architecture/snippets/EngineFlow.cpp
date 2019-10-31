@@ -1,14 +1,52 @@
-FEngineLoop GEngineLoop;
-int32 GuardedMain(const TCHAR* CmdLine);
-	int32 ErrorLevel = EnginePreInit(CmdLine);
-		FEngineLoop::PreInit(CmdLine);
-			// Paths, CVars, Modules, Plugins, Platform, Slate, Threads, Memory, Physics, Renderer etc.
-	ErrorLevel = EngineInit();
-		FEngineLoop::Init();
-			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
-			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
-			GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
-			GEngine->Init(this);
+/* assuming the binary is running as a shpping linux dedicated server, loading into the main game map and game mode directly */
+FEngineLoop GEngineLoop; //
+int32 GuardedMain(const TCHAR* CmdLine); //
+	FCoreDelegates::GetPreMainInitDelegate().Broadcast(); //
+	int32 ErrorLevel = EnginePreInit(CmdLine); //
+		FEngineLoop::PreInit(CmdLine); //
+			// Paths, CVars, Modules, Plugins, Platform, Slate, Threads, Memory, Physics, Renderer, Engine Defaults etc.
+			// TODO
+			FCommandLine::Set(CmdLine);
+			IFileManager::Get().ProcessCommandLineOptions();
+			FPlatformProcess::SetupGameThread();
+			FPaths::SetProjectFilePath(ProjectFilePath);
+			IProjectManager::Get().LoadProjectFile(FPaths::GetProjectFilePath());
+			FModuleManager::Get().SetGameBinariesDirectory(*ProjectBinariesDirectory);
+			FTaskGraphInterface::Startup(FPlatformMisc::NumberOfCores());
+			FTaskGraphInterface::Get().AttachToThread(ENamedThreads::GameThread);
+			LoadCoreModules();
+			LoadPreInitModules();
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreEarlyLoadingScreen);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreEarlyLoadingScreen);
+			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.StreamingSettings"), *GEngineIni, ECVF_SetByProjectSetting);
+			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ECVF_SetByProjectSetting);
+			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ECVF_SetByProjectSetting);
+			FConfigCacheIni::LoadConsoleVariablesFromINI();
+			FPlatformMisc::PlatformInit();
+			FPlatformMemory::Init();
+			bool bDisableDisregardForGC = FPlatformProperties::RequiresCookedData() && (GUseDisregardForGCOnDedicatedServers == 0);
+			InitGamePhys();
+			FPackageName::RegisterShortPackageNamesForUObjectModules();
+			ProcessNewlyLoadedUObjects();
+			FModuleManager::Get().StartProcessingNewlyLoadedObjects();
+			if (bDisableDisregardForGC)
+				GUObjectArray.DisableDisregardForGC();
+			LoadStartupCoreModules();
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreLoadingScreen);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreLoadingScreen);
+			FPlatformApplicationMisc::PostInit();
+			LoadStartupModules();
+			if (GUObjectArray.IsOpenForDisregardForGC())
+				GUObjectArray.CloseDisregardForGC();
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit);
+	ErrorLevel = EngineInit(); //
+		FEngineLoop::Init(); //
+			GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni); //
+			EngineClass = StaticLoadClass(UGameEngine::StaticClass(), nullptr, *GameEngineClassName); //
+			GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass); //
+			GEngine->ParseCommandline(); //
+			GEngine->Init(this); //
 				UGameEngine::Init(InEngineLoop);
 					UEngine::Init(InEngineLoop);
 						EngineSubsystemCollection.Initialize();
@@ -29,7 +67,14 @@ int32 GuardedMain(const TCHAR* CmdLine);
 							OnlineSession = NewObject<UOnlineSession>(this, SpawnClass);
 							OnlineSession->RegisterOnlineDelegates();
 							SubsystemCollection.Initialize();
-			GEngine->Start();
+			UEngine::OnPostEngineInit.Broadcast(); //
+			FCoreDelegates::OnPostEngineInit.Broadcast(); //
+			SessionService = FModuleManager::LoadModuleChecked<ISessionServicesModule>("SessionServices").GetSessionService(); //
+			SessionService->Start(); //
+			EngineService = new FEngineService(); //
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit); //
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit); //
+			GEngine->Start(); //
 				UGameEngine::Start();
 					GameInstance->StartGameInstance();
 						const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
@@ -169,8 +214,11 @@ int32 GuardedMain(const TCHAR* CmdLine);
 								WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
 								return true;
 						UGameInstance::OnStart();
-	while (!GIsRequestingExit)
-		EngineTick();
+			GIsRunning = true; //
+			FThreadHeartBeat::Get().Start(); //
+			FCoreDelegates::OnFEngineLoopInitComplete.Broadcast(); //
+	while (!GIsRequestingExit) //
+		EngineTick(); //
 			FEngineLoop::Tick();
 				FCoreDelegates::OnBeginFrame.Broadcast();
 				GEngine->UpdateTimeAndHandleMaxTickRate();
@@ -244,9 +292,9 @@ int32 GuardedMain(const TCHAR* CmdLine);
 				FThreadManager::Get().Tick();
 				GEngine->TickDeferredCommands();
 				FCoreDelegates::OnEndFrame.Broadcast();
-	~EngineLoopCleanupGuard();
-		EngineExit();
-			FEngineLoop::Exit();
+	~EngineLoopCleanupGuard(); //
+		EngineExit(); //
+			FEngineLoop::Exit(); //
 				UGameEngine::PreExit();
 					for (int32 WorldIndex = 0; WorldIndex < WorldList.Num(); ++WorldIndex)
 						UWorld* const World = WorldList[WorldIndex].World();
@@ -261,4 +309,4 @@ int32 GuardedMain(const TCHAR* CmdLine);
 							SubsystemCollection.Deinitialize();
 							WorldContext = nullptr;
 					GEngine->PreExit();
-	return ErrorLevel;
+	return ErrorLevel; //
