@@ -1,4 +1,4 @@
-/* assuming the binary is running as a shpping linux dedicated server, loading into the main game map and game mode directly */
+/* assuming the binary is running as a shipping linux dedicated server, loading into the main game map and game mode directly */
 FEngineLoop GEngineLoop; //
 int32 GuardedMain(const TCHAR* CmdLine); //
 	FCoreDelegates::GetPreMainInitDelegate().Broadcast(); //
@@ -14,10 +14,22 @@ int32 GuardedMain(const TCHAR* CmdLine); //
 			FModuleManager::Get().SetGameBinariesDirectory(*ProjectBinariesDirectory);
 			FTaskGraphInterface::Startup(FPlatformMisc::NumberOfCores());
 			FTaskGraphInterface::Get().AttachToThread(ENamedThreads::GameThread);
-			LoadCoreModules();
-			LoadPreInitModules();
-			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreEarlyLoadingScreen);
-			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreEarlyLoadingScreen);
+			FEngineLoop::LoadCoreModules();
+				FModuleManager::Get().LoadModule(TEXT("CoreUObject"));
+			FEngineLoop::LoadPreInitModules();
+				FModuleManager::Get().LoadModule(TEXT("Engine"));
+				FModuleManager::Get().LoadModule(TEXT("Renderer"));
+				FPlatformApplicationMisc::LoadPreInitModules();
+					FLinuxPlatformApplicationMisc::LoadPreInitModules();
+			FEngineLoop::AppInit();
+				FPlatformMisc::PlatformPreInit();
+				FConfigCacheIni::InitializeConfigSystem();
+				ProjectManager.LoadModulesForProject(ELoadingPhase::EarliestPossible);
+				PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::EarliestPossible);
+				FPlatformStackWalk::Init();
+				ProjectManager.LoadModulesForProject(ELoadingPhase::PostConfigInit);
+				PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::PostConfigInit);
+				FCoreDelegates::OnInit.Broadcast();
 			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.StreamingSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 			ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ECVF_SetByProjectSetting);
@@ -31,11 +43,21 @@ int32 GuardedMain(const TCHAR* CmdLine); //
 			FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 			if (bDisableDisregardForGC)
 				GUObjectArray.DisableDisregardForGC();
-			LoadStartupCoreModules();
+			FEngineLoop::LoadStartupCoreModules();
+				FModuleManager::Get().LoadModule(TEXT("Core"));
+				FModuleManager::Get().LoadModule(TEXT("Networking"));
+				FPlatformApplicationMisc::LoadStartupModules();
+				FModuleManager::Get().LoadModule(TEXT("PacketHandler"));
 			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreLoadingScreen);
 			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreLoadingScreen);
 			FPlatformApplicationMisc::PostInit();
-			LoadStartupModules();
+			FEngineLoop::LoadStartupModules();
+				IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreDefault);
+				IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreDefault);
+				IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Default);
+				IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::Default);
+				IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostDefault);
+				IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostDefault);
 			if (GUObjectArray.IsOpenForDisregardForGC())
 				GUObjectArray.CloseDisregardForGC();
 			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
