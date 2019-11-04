@@ -17,6 +17,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	{
 		FMemory::SetupTLSCachesOnCurrentThread(); // Thread-Local Storage
 		FLowLevelMemTracker::Get().ProcessCommandLine(CmdLine); // Low-Level Memory Tracker
+		FPlatformMisc::InitTaggedStorage(1024);
 		FPlatformProcess::SetCurrentWorkingDirectoryToBaseDir();
 		FCommandLine::Set(CmdLine);
 		GError = FPlatformOutputDevices::GetError();
@@ -147,6 +148,9 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		UMaterialInterface::InitDefaultMaterials();
 		UMaterialInterface::AssertDefaultMaterialsExist();
 		UMaterialInterface::AssertDefaultMaterialsPostLoaded();
+		// Initialize the texture streaming system (needs to happen after RHIInit and ProcessNewlyLoadedUObjects).
+		IStreamingManager::Get();
+		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 		bool bDisableDisregardForGC = GUseDisregardForGCOnDedicatedServers == 0;
 		if (bDisableDisregardForGC)
 			GUObjectArray.DisableDisregardForGC();
@@ -202,5 +206,21 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	}
 	FEngineLoop::Exit() // TODO: 1st pass
 	{
+		GIsRunning = 0;
+		GLogConsole = nullptr;
+		FlushAsyncLoading();
+		UTexture2D::CancelPendingTextureStreaming();
+		delete EngineService; // shut down messaging
+		EngineService = nullptr;
+		SessionService->Stop();
+		SessionService.Reset();
+		GDistanceFieldAsyncQueue->Shutdown();
+		delete GDistanceFieldAsyncQueue;
+		GEngine->PreExit();
+		StopRenderingThread();
+		RHIExitAndStopRHIThread(); // Render Hardware Interface
+		FTaskGraphInterface::Shutdown();
+		IStreamingManager::Shutdown();
+		FPlatformMisc::ShutdownTaggedStorage();
 	}
 	return ErrorLevel;
