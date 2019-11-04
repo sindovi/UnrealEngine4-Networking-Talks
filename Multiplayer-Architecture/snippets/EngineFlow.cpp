@@ -208,6 +208,36 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	}
 	FEngineLoop::Tick() // TODO: 1st pass
 	{
+		FLowLevelMemTracker::Get().UpdateStatsPerFrame();
+		FThreadHeartBeat::Get().HeartBeat(true);
+		FGameThreadHitchHeartBeat::Get().FrameStart();
+		FPlatformMisc::TickHotfixables();
+		if (!GUseThreadedRendering)
+			TickRenderingTickables();
+		FPlatformMisc::BeginNamedEventFrame();
+		uint64 CurrentFrameCounter = GFrameCounter;
+		IConsoleManager::Get().CallAllConsoleVariableSinks();
+		FCoreDelegates::OnBeginFrame.Broadcast();
+		GLog->FlushThreadedLogs();
+		GEngine->UpdateTimeAndHandleMaxTickRate();
+		GEngine->TickPerformanceMonitoring( FApp::GetDeltaTime() );
+		ResetAsyncLoadingStats();
+		GMalloc->UpdateStats();
+		CalculateFPSTimings();
+		FPlatformApplicationMisc::PumpMessages(true);
+		FPlatformFileManager::Get().TickActivePlatformFile();
+		GInputTime = FPlatformTime::Cycles64();
+		GEngine->Tick(FApp::GetDeltaTime(), bIdleMode);
+		GShaderCompilingManager->ProcessAsyncResults(true, false);
+		GDistanceFieldAsyncQueue->ProcessAsyncTasks();
+		FTaskGraphInterface::Get().WaitUntilTaskCompletes(ConcurrentTask);
+		RHITick(FApp::GetDeltaTime()); // Update RHI.
+		GFrameCounter++;
+		TotalTickTime += FApp::GetDeltaTime();
+		FTicker::GetCoreTicker().Tick(FApp::GetDeltaTime());
+		FThreadManager::Get().Tick();
+		GEngine->TickDeferredCommands();
+		FCoreDelegates::OnEndFrame.Broadcast();
 	}
 	FEngineLoop::Exit() // TODO: 2nd pass
 	{
