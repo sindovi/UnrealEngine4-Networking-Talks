@@ -84,6 +84,8 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.StreamingSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ECVF_SetByProjectSetting);
+		if (FPlatformMisc::UseRenderThread())
+			GUseThreadedRendering = true;
 		FConfigCacheIni::LoadConsoleVariablesFromINI();
 			ApplyCVarSettingsFromIni(TEXT("ConsoleVariables"), *GEngineIni, ECVF_SetBySystemSettingsIni);
 			IConsoleManager::Get().CallAllConsoleVariableSinks();
@@ -166,6 +168,9 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreLoadingScreen);
 		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreLoadingScreen);
 		FPlatformApplicationMisc::PostInit();
+		PostInitRHI();
+			RHIPostInit(PixelFormatByteWidth);
+		StartRenderingThread();
 		FCoreUObjectDelegates::PreGarbageCollectConditionalBeginDestroy.AddStatic(StartRenderCommandFenceBundler);
 		FCoreUObjectDelegates::PostGarbageCollectConditionalBeginDestroy.AddStatic(StopRenderCommandFenceBundler);
 		FEngineLoop::LoadStartupModules();
@@ -204,7 +209,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 	FEngineLoop::Tick() // TODO: 1st pass
 	{
 	}
-	FEngineLoop::Exit() // TODO: 1st pass
+	FEngineLoop::Exit() // TODO: 2nd pass
 	{
 		GIsRunning = 0;
 		GLogConsole = nullptr;
