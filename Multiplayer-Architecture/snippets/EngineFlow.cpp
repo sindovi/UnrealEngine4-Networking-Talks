@@ -8,26 +8,26 @@
 
 FEngineLoop GEngineLoop;
 int32 GuardedMain(const TCHAR* CmdLine)
-	FEngineLoop::PreInit(CmdLine)
+	FEngineLoop::PreInit(CmdLine) // TODO: Final pass
 	{
+		FMemory::SetupTLSCachesOnCurrentThread(); // Thread-Local Storage
+		FLowLevelMemTracker::Get().ProcessCommandLine(CmdLine); // Low-Level Memory Tracker
 		FPlatformProcess::SetCurrentWorkingDirectoryToBaseDir();
 		FCommandLine::Set(CmdLine);
 		GError = FPlatformOutputDevices::GetError();
 		GWarn = FPlatformOutputDevices::GetFeedbackContext();
 		IFileManager::Get().ProcessCommandLineOptions();
-		GGameThreadId = FPlatformTLS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
 		FPlatformProcess::SetThreadAffinityMask(FPlatformAffinity::GetMainGameMask());
-		FPlatformProcess::SetupGameThread();
 		FMath::RandInit(Seed1);
 		FMath::SRandInit(Seed2);
 		FPaths::SetProjectFilePath(ProjectFilePath);
+		IProjectManager::Get().LoadProjectFile(FPaths::GetProjectFilePath());
 		FPlatformProcess::AddDllDirectory(*ProjectBinariesDirectory);
 		FModuleManager::Get().SetGameBinariesDirectory(*ProjectBinariesDirectory);
 		FTaskGraphInterface::Startup(FPlatformMisc::NumberOfCores());
 		FTaskGraphInterface::Get().AttachToThread(ENamedThreads::GameThread);
 		FEngineLoop::LoadCoreModules();
-		InitializeRenderingCVarsCaching();
+			FModuleManager::Get().LoadModule(TEXT("CoreUObject"));
 		if (FPlatformProcess::SupportsMultithreading())
 			int StackSize = 128;
 			GThreadPool = FQueuedThreadPool::Allocate();
@@ -41,8 +41,30 @@ int32 GuardedMain(const TCHAR* CmdLine)
 				NumThreadsInThreadPool = 1;
 			GBackgroundPriorityThreadPool->Create(NumThreadsInThreadPool, 128 * 1024, TPri_Lowest);
 		FEngineLoop::LoadPreInitModules();
+			FModuleManager::Get().LoadModule(TEXT("Engine"));
+			FModuleManager::Get().LoadModule(TEXT("Renderer"));
+			FModuleManager::Get().LoadModule(TEXT("AnimGraphRuntime"));
+			FPlatformApplicationMisc::LoadPreInitModules(); // Linux
+			FModuleManager::Get().LoadModule(TEXT("Landscape"));
+			FModuleManager::Get().LoadModule(TEXT("RenderCore"));
 		AppLifetimeEventCapture::Init();
-		AppInit();
+		FEngineLoop::AppInit();
+			BeginInitTextLocalization();
+			FPlatformMisc::PlatformPreInit();
+			IFileManager::Get().ProcessCommandLineOptions();
+			FPageAllocator::LatchProtectedMode();
+			FPlatformOutputDevices::SetupOutputDevices();
+			FConfigCacheIni::InitializeConfigSystem();
+			ProjectManager.LoadModulesForProject(ELoadingPhase::EarliestPossible);
+			PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::EarliestPossible);
+			FPlatformStackWalk::Init();
+			FLogSuppressionInterface::Get().ProcessConfigAndCommandLine();
+			ProjectManager.LoadModulesForProject(ELoadingPhase::PostConfigInit);
+			PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::PostConfigInit);
+			if (GLogConsole && FParse::Param(FCommandLine::Get(), TEXT("LOG")))
+				GLogConsole->Show(true);
+			FApp::PrintStartupLogMessages();
+			FCoreDelegates::OnInit.Broadcast();
 		FPlatformFileManager::Get().InitializeNewAsyncIO();
 		if (FPlatformProcess::SupportsMultithreading())
 			GIOThreadPool = FQueuedThreadPool::Allocate();
@@ -57,50 +79,97 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ECVF_SetByProjectSetting);
 		FConfigCacheIni::LoadConsoleVariablesFromINI();
+			ApplyCVarSettingsFromIni(TEXT("ConsoleVariables"), *GEngineIni, ECVF_SetBySystemSettingsIni);
+			IConsoleManager::Get().CallAllConsoleVariableSinks();
 		FPlatformMisc::PlatformInit();
+			FUnixPlatformMisc::PlatformInit();
+				InstallChildExitedSignalHanlder(); // not my typo, stock UE code! :)
+				UnixPlatForm_CheckIfKSMUsable();
+				UnixPlatform_UpdateCacheLineSize();
+				UnixPlatformStackWalk_PreloadModuleSymbolFile();
 		FPlatformMemory::Init();
-		FPlatformMisc::CommandLineCommands();
-		IPlatformFeaturesModule::Get();
+			FUnixPlatformMemory::Init();
+				FGenericPlatformMemory::Init();
+					SetupMemoryPools();
 		InitGamePhys();
+			InitGamePhysCore();
+				#if INCLUDE_CHAOS
+					FModuleManager::Get().LoadModule("Chaos");
+					FModuleManager::Get().LoadModule("ChaosSolvers");
+					FModuleManager::Get().LoadModule("ChaosSolverEngine");
+				#if WITH_PHYSX
+					PhysDLLHelper::LoadPhysXModules(/*bLoadCookingModule=*/ false);
+					GPhysXFoundation = PxCreateFoundation(PX_FOUNDATION_VERSION, *GPhysXAllocator, *ErrorCallback);
+					GPhysXVisualDebugger = PxCreatePvd(*GPhysXFoundation);
+					GPhysXSDK = PxCreatePhysics(PX_PHYSICS_VERSION, *GPhysXFoundation, PScale, false, GPhysXVisualDebugger);
+					FPhysxSharedData::Initialize();
+					PxInitExtensions(*GPhysXSDK, GPhysXVisualDebugger);
+					PxRegisterHeightFields(*GPhysXSDK);
+					#if WITH_APEX
+						apex::ApexSDKDesc ApexDesc;
+						GApexSDK = apex::CreateApexSDK(ApexDesc, &ErrorCode);
+						#if WITH_APEX_CLOTHING
+						GApexModuleClothing = static_cast<apex::ModuleClothing*>(GApexSDK->createModule("Clothing"));
+						GApexModuleClothing->init(*ModuleParams);
 		InitEngineTextLocalization();
-		UStringTable::InitializeEngineBridge();
 		if (!IsRunningDedicatedServer())
 			FPlatformSplash::Show();
 		if (!IsRunningDedicatedServer())
 			FSlateApplication::Create();
-		else // IsRunningDedicatedServer() == true
+		else // IsRunningDedicatedServer() == true, still initialize required basics
 			EKeys::Initialize();
 			FCoreStyle::ResetToDefault();
 		FShaderParametersMetadata::InitializeAllGlobalStructs();
 		RHIInit(bHasEditorToken); // Render Hardware Interface
+			if (!FApp::CanEverRender())
+				InitNullRHI();
+					// ...
 		RenderUtilsInit();
+			static IConsoleVariable* DBufferVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DBuffer"));
+			if (DBufferVar && DBufferVar->GetInt())
+				GDBufferPlatformMask = ~0u;
+			// ...
 		FShaderCodeLibrary::InitForRuntime(GMaxRHIShaderPlatform);
 		FShaderPipelineCache::Initialize(GMaxRHIShaderPlatform);
-		GetRendererModule();
 		InitializeShaderTypes();
 		InitGameTextLocalization();
 		FPackageName::RegisterShortPackageNamesForUObjectModules();
 		ProcessNewlyLoadedUObjects();
+			UClassRegisterAllCompiledInClasses();
+			UObjectProcessRegistrants();
+			UObjectLoadAllCompiledInStructs();
+			UObjectLoadAllCompiledInDefaultProperties();
 		UMaterialInterface::InitDefaultMaterials();
 		UMaterialInterface::AssertDefaultMaterialsExist();
 		UMaterialInterface::AssertDefaultMaterialsPostLoaded();
-		IStreamingManager::Get();
-		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 		bool bDisableDisregardForGC = GUseDisregardForGCOnDedicatedServers == 0;
 		if (bDisableDisregardForGC)
 			GUObjectArray.DisableDisregardForGC();
 		FEngineLoop::LoadStartupCoreModules();
+			FModuleManager::Get().LoadModule(TEXT("Core"));
+			FModuleManager::Get().LoadModule(TEXT("Networking"));
+			FPlatformApplicationMisc::LoadStartupModules(); // Linux
+			if (FPlatformProcess::SupportsMultithreading())
+				FModuleManager::LoadModuleChecked<IMessagingModule>("Messaging");
+			FModuleManager::Get().LoadModule(TEXT("ClothingSystemRuntime"));
+			FModuleManager::Get().LoadModule(TEXT("PacketHandler"));
+			FModuleManager::Get().LoadModule(TEXT("NetworkReplayStreaming"));
 		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreLoadingScreen);
 		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreLoadingScreen);
 		FPlatformApplicationMisc::PostInit();
 		FCoreUObjectDelegates::PreGarbageCollectConditionalBeginDestroy.AddStatic(StartRenderCommandFenceBundler);
 		FCoreUObjectDelegates::PostGarbageCollectConditionalBeginDestroy.AddStatic(StopRenderCommandFenceBundler);
 		FEngineLoop::LoadStartupModules();
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PreDefault);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PreDefault);
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::Default);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::Default);
+			IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostDefault);
+			IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostDefault);
 		if (GUObjectArray.IsOpenForDisregardForGC())
 			GUObjectArray.CloseDisregardForGC();
 		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
 		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit);
-		NotifyRegistrationComplete();
 	}
 	FEngineLoop::Init()
 	{
