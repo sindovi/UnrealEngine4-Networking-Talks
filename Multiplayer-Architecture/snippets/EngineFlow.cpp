@@ -6,9 +6,14 @@
 // FPlatformProperties::IsProgram() == false
 // FPlatformProperties::RequiresCookedData() == true
 
+// 1st pass: high-level function calls in the flow
+// 2nd pass: in-depth function calls breakdown
+// 3rd pass: necessarity checks on every lines brokendown
+// Final pass: simplification
+
 FEngineLoop GEngineLoop;
 int32 GuardedMain(const TCHAR* CmdLine)
-	FEngineLoop::PreInit(CmdLine) // TODO: Final pass
+	FEngineLoop::PreInit(CmdLine) // TODO: 2nd pass
 	{
 		FMemory::SetupTLSCachesOnCurrentThread(); // Thread-Local Storage
 		FLowLevelMemTracker::Get().ProcessCommandLine(CmdLine); // Low-Level Memory Tracker
@@ -171,16 +176,31 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
 		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit);
 	}
-	FEngineLoop::Init()
+	FEngineLoop::Init() // TODO: 2nd pass
 	{
-		// TODO
+		GConfig->GetString(TEXT("/Script/Engine.Engine"), TEXT("GameEngine"), GameEngineClassName, GEngineIni);
+		EngineClass = StaticLoadClass( UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
+		GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
+		GEngine->ParseCommandline();
+		InitTime();
+		GEngine->Init(this);
+		UEngine::OnPostEngineInit.Broadcast();
+		FCoreDelegates::OnPostEngineInit.Broadcast();
+		if (FPlatformProcess::SupportsMultithreading())
+			SessionService = FModuleManager::LoadModuleChecked<ISessionServicesModule>("SessionServices").GetSessionService();
+			SessionService->Start();
+			EngineService = new FEngineService();
+		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
+		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit);
+		GEngine->Start();
+		GIsRunning = true;
+		FThreadHeartBeat::Get().Start();
+		FCoreDelegates::OnFEngineLoopInitComplete.Broadcast();
 	}
-	FEngineLoop::Tick()
+	FEngineLoop::Tick() // TODO: 1st pass
 	{
-		// TODO
 	}
-	FEngineLoop::Exit()
+	FEngineLoop::Exit() // TODO: 1st pass
 	{
-		// TODO
 	}
 	return ErrorLevel;
