@@ -13,7 +13,7 @@
 
 FEngineLoop GEngineLoop;
 int32 GuardedMain(const TCHAR* CmdLine)
-	FEngineLoop::PreInit(CmdLine) // TODO: 2nd pass
+	FEngineLoop::PreInit(CmdLine) // TODO: 3rd pass
 	{
 		FMemory::SetupTLSCachesOnCurrentThread(); // Thread-Local Storage
 		FLowLevelMemTracker::Get().ProcessCommandLine(CmdLine); // Low-Level Memory Tracker
@@ -31,6 +31,15 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		FPlatformProcess::AddDllDirectory(*ProjectBinariesDirectory);
 		FModuleManager::Get().SetGameBinariesDirectory(*ProjectBinariesDirectory);
 		FTaskGraphInterface::Startup(FPlatformMisc::NumberOfCores());
+			FTaskGraphImplementation(NumThreads);
+				int32 MaxTaskThreads = MAX_THREADS;
+				int32 NumTaskThreads = FPlatformMisc::NumberOfWorkerThreadsToSpawn();
+				// ...
+				for (int32 ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++)
+					WorkerThreads[ThreadIndex].TaskGraphWorker = new FTaskThreadAnyThread(...);
+					WorkerThreads[ThreadIndex].TaskGraphWorker->Setup(...);
+				TaskGraphImplementationSingleton = this; // now reentrancy is ok
+				// ...
 		FTaskGraphInterface::Get().AttachToThread(ENamedThreads::GameThread);
 		FEngineLoop::LoadCoreModules();
 			FModuleManager::Get().LoadModule(TEXT("CoreUObject"));
@@ -57,20 +66,55 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		FEngineLoop::AppInit();
 			BeginInitTextLocalization();
 			FPlatformMisc::PlatformPreInit();
+				FGenericCrashContext::Initialize();
 			IFileManager::Get().ProcessCommandLineOptions();
 			FPageAllocator::LatchProtectedMode();
 			FPlatformOutputDevices::SetupOutputDevices();
 			FConfigCacheIni::InitializeConfigSystem();
+				GConfig = new FConfigCacheIni(EConfigCacheType::DiskBacked);
+				FConfigCacheIni::LoadGlobalIniFile(GEngineIni, TEXT("Engine"), nullptr, bDefaultEngineIniRequired);
+				FConfigCacheIni::LoadGlobalIniFile(GGameIni, TEXT("Game"));
+				FConfigCacheIni::LoadGlobalIniFile(GInputIni, TEXT("Input"));
+				FConfigCacheIni::LoadGlobalIniFile(GScalabilityIni, TEXT("Scalability"), ScalabilityPlatformOverride);
+				FConfigCacheIni::LoadGlobalIniFile(GHardwareIni, TEXT("Hardware"));
+				FConfigCacheIni::LoadGlobalIniFile(GGameUserSettingsIni, TEXT("GameUserSettings"));
+				GConfig->bIsReadyForUse = true;
+				FCoreDelegates::ConfigReadyForUse.Broadcast();
 			ProjectManager.LoadModulesForProject(ELoadingPhase::EarliestPossible);
 			PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::EarliestPossible);
-			FPlatformStackWalk::Init();
+			FPlatformStackWalk::Init(); // FUnixPlatformStackWalk
 			FLogSuppressionInterface::Get().ProcessConfigAndCommandLine();
 			ProjectManager.LoadModulesForProject(ELoadingPhase::PostConfigInit);
 			PluginManager.LoadModulesForEnabledPlugins(ELoadingPhase::PostConfigInit);
 			if (GLogConsole && FParse::Param(FCommandLine::Get(), TEXT("LOG")))
 				GLogConsole->Show(true);
 			FApp::PrintStartupLogMessages();
+				UE_LOG(LogInit, Log, TEXT("Build: %s"), FApp::GetBuildVersion());
+				UE_LOG(LogInit, Log, TEXT("Engine Version: %s"), *FEngineVersion::Current().ToString());
+				UE_LOG(LogInit, Log, TEXT("Net CL: %u"), FNetworkVersion::GetNetworkCompatibleChangelist());
+				// ...
 			FCoreDelegates::OnInit.Broadcast();
+				InitUObject();
+					FGCCSyncObject::Create();
+					for (const TPair<FString,FConfigFile>& It : *GConfig)
+						FCoreRedirects::ReadRedirectsFromIni(It.Key);
+						FLinkerLoad::CreateActiveRedirectsMap(It.Key);
+					FCoreDelegates::OnExit.AddStatic(StaticExit);
+					// ...
+					StaticUObjectInit();
+						UObjectBaseInit();
+							GConfig->GetInt(TEXT("/Script/Engine.GarbageCollectionSettings"), ...);
+							GUObjectAllocator.AllocatePermanentObjectPool(SizeOfPermanentObjectPool);
+							GUObjectArray.AllocateObjectPool(MaxUObjects, MaxObjectsNotConsideredByGC, ...);
+							InitAsyncThread();
+								FAsyncLoadingThread::Get().InitializeAsyncThread();
+									// ...
+							Internal::GObjInitialized = true;
+							UObjectProcessRegistrants();
+								// ...
+						GObjTransientPkg = NewObject<UPackage>(nullptr, TEXT("/Engine/Transient"), RF_Transient);
+						GObjTransientPkg->AddToRoot();
+						GShouldVerifyGCAssumptions = FParse::Param(FCommandLine::Get(), TEXT("VERIFYGC"));
 		FPlatformFileManager::Get().InitializeNewAsyncIO();
 		if (FPlatformProcess::SupportsMultithreading())
 			GIOThreadPool = FQueuedThreadPool::Allocate();
@@ -79,15 +123,13 @@ int32 GuardedMain(const TCHAR* CmdLine)
 				NumThreadsInThreadPool = 2;
 			GIOThreadPool->Create(NumThreadsInThreadPool, 96 * 1024, TPri_AboveNormal);
 		GSystemSettings.Initialize(bHasEditorToken);
-		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.RendererSettings"), *GEngineIni, ECVF_SetByProjectSetting);
-		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.RendererOverrideSettings"), *GEngineIni, ECVF_SetByProjectSetting);
-		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.StreamingSettings"), *GEngineIni, ECVF_SetByProjectSetting);
-		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ECVF_SetByProjectSetting);
-		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ECVF_SetByProjectSetting);
-		if (FPlatformMisc::UseRenderThread())
-			GUseThreadedRendering = true;
+		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.RendererSettings"), *GEngineIni, ...);
+		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.RendererOverrideSettings"), *GEngineIni, ...);
+		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.StreamingSettings"), *GEngineIni, ...);
+		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.GarbageCollectionSettings"), *GEngineIni, ...);
+		ApplyCVarSettingsFromIni(TEXT("/Script/Engine.NetworkSettings"), *GEngineIni, ...);
 		FConfigCacheIni::LoadConsoleVariablesFromINI();
-			ApplyCVarSettingsFromIni(TEXT("ConsoleVariables"), *GEngineIni, ECVF_SetBySystemSettingsIni);
+			ApplyCVarSettingsFromIni(TEXT("ConsoleVariables"), *GEngineIni, ...);
 			IConsoleManager::Get().CallAllConsoleVariableSinks();
 		FPlatformMisc::PlatformInit();
 			FUnixPlatformMisc::PlatformInit();
@@ -150,8 +192,15 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		UMaterialInterface::InitDefaultMaterials();
 		UMaterialInterface::AssertDefaultMaterialsExist();
 		UMaterialInterface::AssertDefaultMaterialsPostLoaded();
-		// Initialize the texture streaming system (needs to happen after RHIInit and ProcessNewlyLoadedUObjects).
 		IStreamingManager::Get();
+			StreamingManagerCollection = new FStreamingManagerCollection();
+				TextureStreamingManager = new FRenderAssetStreamingManager();
+				AddStreamingManager(TextureStreamingManager);
+				AudioStreamingManager = new FAudioStreamingManager();
+				AddStreamingManager(AudioStreamingManager);
+				AnimationStreamingManager = new FAnimationStreamingManager();
+				AddStreamingManager(AnimationStreamingManager);
+			return *StreamingManagerCollection;
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 		bool bDisableDisregardForGC = GUseDisregardForGCOnDedicatedServers == 0;
 		if (bDisableDisregardForGC)
@@ -170,7 +219,6 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		FPlatformApplicationMisc::PostInit();
 		PostInitRHI();
 			RHIPostInit(PixelFormatByteWidth);
-		StartRenderingThread();
 		FCoreUObjectDelegates::PreGarbageCollectConditionalBeginDestroy.AddStatic(StartRenderCommandFenceBundler);
 		FCoreUObjectDelegates::PostGarbageCollectConditionalBeginDestroy.AddStatic(StopRenderCommandFenceBundler);
 		FEngineLoop::LoadStartupModules();
@@ -191,7 +239,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		EngineClass = StaticLoadClass( UGameEngine::StaticClass(), nullptr, *GameEngineClassName);
 		GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
 		GEngine->ParseCommandline();
-		InitTime();
+		FEngineLoop::InitTime();
 		GEngine->Init(this);
 		UEngine::OnPostEngineInit.Broadcast();
 		FCoreDelegates::OnPostEngineInit.Broadcast();
@@ -206,14 +254,12 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		FThreadHeartBeat::Get().Start();
 		FCoreDelegates::OnFEngineLoopInitComplete.Broadcast();
 	}
-	FEngineLoop::Tick() // TODO: 1st pass
+	FEngineLoop::Tick() // TODO: 2nd pass
 	{
 		FLowLevelMemTracker::Get().UpdateStatsPerFrame();
 		FThreadHeartBeat::Get().HeartBeat(true);
 		FGameThreadHitchHeartBeat::Get().FrameStart();
 		FPlatformMisc::TickHotfixables();
-		if (!GUseThreadedRendering)
-			TickRenderingTickables();
 		FPlatformMisc::BeginNamedEventFrame();
 		uint64 CurrentFrameCounter = GFrameCounter;
 		IConsoleManager::Get().CallAllConsoleVariableSinks();
@@ -249,10 +295,7 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		EngineService = nullptr;
 		SessionService->Stop();
 		SessionService.Reset();
-		GDistanceFieldAsyncQueue->Shutdown();
-		delete GDistanceFieldAsyncQueue;
 		GEngine->PreExit();
-		StopRenderingThread();
 		RHIExitAndStopRHIThread(); // Render Hardware Interface
 		FTaskGraphInterface::Shutdown();
 		IStreamingManager::Shutdown();
