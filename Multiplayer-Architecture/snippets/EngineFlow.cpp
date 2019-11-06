@@ -240,7 +240,56 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		GEngine = NewObject<UEngine>(GetTransientPackage(), EngineClass);
 		GEngine->ParseCommandline();
 		FEngineLoop::InitTime();
+			FApp::SetCurrentTime(FPlatformTime::Seconds());
+			MaxFrameCounter = 0;
+			MaxTickTime = 0;
+			TotalTickTime = 0;
+			LastFrameCycles = FPlatformTime::Cycles();
 		GEngine->Init(this);
+			UGameEngine::Init(InEngineLoop);
+				UEngine::Init(InEngineLoop);
+					// TODO
+					FURL::StaticInit();
+					FLinkerLoad::StaticInit(UTexture2D::StaticClass());
+					EngineSubsystemCollection.Initialize();
+					InitializeRunningAverageDeltaTime();
+					AddToRoot();
+					FCoreUObjectDelegates::GetPreGarbageCollectDelegate().AddStatic(UEngine::PreGarbageCollect);
+					LoadObject<UClass>(UEngine::StaticClass()->GetOuter(), *UEngine::StaticClass()->GetName(), NULL, LOAD_Quiet|LOAD_NoWarn, NULL);
+					LoadConfig();
+					SetConfiguredProcessLimits();
+					InitializeObjectReferences();
+					const UGeneralProjectSettings& ProjectSettings = *GetDefault<UGeneralProjectSettings>();
+					FNetworkVersion::SetProjectVersion(*ProjectSettings.ProjectVersion);
+					OnTravelFailure().AddUObject(this, &UEngine::HandleTravelFailure);
+					OnNetworkFailure().AddUObject(this, &UEngine::HandleNetworkFailure);
+					OnNetworkLagStateChanged().AddUObject(this, &UEngine::HandleNetworkLagStateChanged);
+					FEngineAnalytics::Initialize();
+					FModuleManager::Get().LoadModule("ImageWriteQueue");
+					FModuleManager::Get().LoadModuleChecked("StreamingPauseRendering");
+					FModuleManager::Get().LoadModule("LevelSequence");
+					EngineStats.Add(FEngineStatFuncs(TEXT("STAT_NamedEvents"), ...);
+					// ...
+				GetGameUserSettings()->LoadSettings();
+				GetGameUserSettings()->ApplyNonResolutionSettings();
+				FSoftClassPath GameInstanceClassName = GetDefault<UGameMapsSettings>()->GameInstanceClass;
+				UClass* GameInstanceClass = LoadObject<UClass>(NULL, *GameInstanceClassName.ToString());
+				GameInstance = NewObject<UGameInstance>(this, GameInstanceClass);
+				GameInstance->InitializeStandalone();
+					// TODO
+					WorldContext = &GetEngine()->CreateNewWorldContext(EWorldType::Game);
+					WorldContext->OwningGameInstance = this;
+					UWorld* DummyWorld = UWorld::CreateWorld(EWorldType::Game, false);
+					DummyWorld->SetGameInstance(this);
+					WorldContext->SetCurrentWorld(DummyWorld);
+					UGameInstance::Init();
+						UGameInstance::ReceiveInit(); // BP Event Function
+						OnlineSession = NewObject<UOnlineSession>(this, GetOnlineSessionClass());
+						OnlineSession->RegisterOnlineDelegates();
+						FNetDelegates::OnReceivedNetworkEncryptionToken.BindUObject(this, &ThisClass::ReceivedNetworkEncryptionToken);
+						FNetDelegates::OnReceivedNetworkEncryptionAck.BindUObject(this, &ThisClass::ReceivedNetworkEncryptionAck);
+						SubsystemCollection.Initialize();
+				bIsInitialized = true;
 		UEngine::OnPostEngineInit.Broadcast();
 		FCoreDelegates::OnPostEngineInit.Broadcast();
 		if (FPlatformProcess::SupportsMultithreading())
@@ -250,6 +299,79 @@ int32 GuardedMain(const TCHAR* CmdLine)
 		IProjectManager::Get().LoadModulesForProject(ELoadingPhase::PostEngineInit);
 		IPluginManager::Get().LoadModulesForEnabledPlugins(ELoadingPhase::PostEngineInit);
 		GEngine->Start();
+			// TODO
+			GameInstance->StartGameInstance();
+				DefaultURL.LoadURLConfig(TEXT("DefaultPlayer"), GGameIni);
+				const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
+				const FString& DefaultMap = GameMapsSettings->GetGameDefaultMap();
+				const FString PackageName = DefaultMap + GameMapsSettings->LocalMapOptions;
+				const FURL URL(&DefaultURL, *PackageName, TRAVEL_Partial);
+				EBrowseReturnVal::Type BrowseRet = GEngine->Browse(*WorldContext, URL, Error);
+					return LoadMap(WorldContext, URL, NULL, Error) ? EBrowseReturnVal::Success : EBrowseReturnVal::Failure;
+						// TODO
+						FCoreUObjectDelegates::PreLoadMap.Broadcast(URL.Map);
+						if (WorldContext.World() && WorldContext.World()->PersistentLevel)
+							CleanupPackagesToFullyLoad(WorldContext, FULLYLOAD_Map, WorldContext.World()->PersistentLevel->GetOutermost()->GetName());
+						CleanupPackagesToFullyLoad(WorldContext, FULLYLOAD_Game_PreLoadClass, TEXT(""));
+						CleanupPackagesToFullyLoad(WorldContext, FULLYLOAD_Game_PostLoadClass, TEXT(""));
+						CleanupPackagesToFullyLoad(WorldContext, FULLYLOAD_Mutator, TEXT(""));
+						FlushAsyncLoading();
+						CancelPendingMapChange(WorldContext);
+						WorldContext.SeamlessTravelHandler.CancelTravel();
+						GInitRunaway();
+						WorldContext.World()->BeginTearingDown();
+						ShutdownWorldNetDriver(WorldContext.World());
+						WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
+						FWorldDelegates::LevelRemovedFromWorld.Broadcast(nullptr, WorldContext.World());
+						// Disassociate the players from their PlayerControllers in this world.
+						for(auto It = WorldContext.OwningGameInstance->GetLocalPlayerIterator(); It; ++It)
+							ULocalPlayer *Player = *It;
+							WorldContext.World()->DestroyActor(Player->PlayerController->GetPawn(), true);
+							WorldContext.World()->DestroyActor(Player->PlayerController, true);
+							Player->PlayerController = nullptr;
+						for (FActorIterator ActorIt(WorldContext.World()); ActorIt; ++ActorIt)
+							ActorIt->RouteEndPlay(EEndPlayReason::LevelTransition);
+						WorldContext.World()->CleanupWorld();
+						GEngine->WorldDestroyed(WorldContext.World());
+						WorldContext.World()->RemoveFromRoot();
+						for (auto LevelIt(WorldContext.World()->GetLevelIterator()); LevelIt; ++LevelIt)
+							const ULevel* Level = *LevelIt;
+							CastChecked<UWorld>(Level->GetOuter())->MarkObjectsPendingKill();
+						for (ULevelStreaming* LevelStreaming : WorldContext.World()->GetStreamingLevels())
+							CastChecked<UWorld>(LevelStreaming->GetLoadedLevel()->GetOuter())->MarkObjectsPendingKill();
+						WorldContext.SetCurrentWorld(nullptr);
+						IStreamingManager::Get().CancelForcedResources();
+						WorldContext.OwningGameInstance->PreloadContentForURL(URL);
+						const FName URLMapFName = FName(*URL.Map);
+						UWorld::WorldTypePreLoadMap.FindOrAdd(URLMapFName) = WorldContext.WorldType;
+						UPackage* WorldPackage = LoadPackage(nullptr, *URL.Map, (WorldContext.WorldType == EWorldType::PIE ? LOAD_PackageForPIE : LOAD_None));
+						UWorld::WorldTypePreLoadMap.Remove(URLMapFName);
+						UWorld* NewWorld = UWorld::FindWorldInPackage(WorldPackage);
+						NewWorld->PersistentLevel->HandleLegacyMapBuildData();
+						NewWorld->SetGameInstance(WorldContext.OwningGameInstance);
+						GWorld = NewWorld;
+						WorldContext.SetCurrentWorld(NewWorld);
+						WorldContext.World()->WorldType = WorldContext.WorldType;
+						WorldContext.World()->AddToRoot();
+						WorldContext.World()->InitWorld();
+						WorldContext.World()->SetGameMode(URL);
+						WorldContext.World()->Listen(URL);
+						LoadPackagesFully(WorldContext.World(), FULLYLOAD_Map, WorldContext.World()->PersistentLevel->GetOutermost()->GetName());
+						WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
+						WorldContext.World()->CreateAISystem();
+						WorldContext.World()->InitializeActorsForPlay(URL);
+						FNavigationSystem::AddNavigationSystemToWorld(*WorldContext.World(), FNavigationSystemRunMode::GameMode);
+						// Spawn play actors for all active local players
+						for(auto It = WorldContext.OwningGameInstance->GetLocalPlayerIterator(); It; ++It)
+							(*It)->SpawnPlayActor(URL.ToString(1),Error2,WorldContext.World());
+						IStreamingManager::Get().NotifyLevelChange();
+						WorldContext.World()->BeginPlay();
+						PostLoadMapCaller.Broadcast(WorldContext.World());
+							FCoreUObjectDelegates::PostLoadMapWithWorld.Broadcast(World);
+						WorldContext.World()->bWorldWasLoadedThisTick = true;
+						WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
+						return true;
+				UGameInstance::OnStart();
 		GIsRunning = true;
 		FThreadHeartBeat::Get().Start();
 		FCoreDelegates::OnFEngineLoopInitComplete.Broadcast();
